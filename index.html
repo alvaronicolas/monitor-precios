@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor de Precios</title>
+<meta name="description" content="Monitoreo de Jet Fuel, petróleo, oro y dólar con datos de fuentes públicas actualizados automáticamente.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --text:#111827; --muted:#6b7280; --line:#e5e7eb;
+  --accent:#2563eb; --up:#047857; --down:#b91c1c; --upbg:#ecfdf5; --downbg:#fef2f2;
+  --c1:#2563eb; --c2:#d97706; --c3:#059669; --c4:#b45309; --c5:#7c3aed; --c6:#db2777;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0b0f17; --panel:#121826; --text:#e5e7eb; --muted:#9ca3af; --line:#243042;
+    --accent:#60a5fa; --up:#34d399; --down:#f87171; --upbg:#06281f; --downbg:#2a1012;
+    --c1:#60a5fa; --c2:#fbbf24; --c3:#34d399; --c4:#f59e0b; --c5:#a78bfa; --c6:#f472b6;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.45}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 16px 48px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:8px 24px;margin-bottom:20px}
+h1{font-size:26px;margin:0;letter-spacing:-.02em}
+h2{font-size:17px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-color .15s,box-shadow .15s}
+.card:hover{border-color:var(--muted)}
+.card[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.card .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.card .name{font-weight:600}
+.card .unit{color:var(--muted);font-size:12px}
+.card .detail{color:var(--muted);font-size:12px;margin-top:2px}
+.card .val{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:8px 0 2px;font-variant-numeric:tabular-nums}
+.chg{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pill{font-size:12px;font-weight:600;padding:2px 7px;border-radius:999px;font-variant-numeric:tabular-nums;background:var(--bg);color:var(--muted)}
+.pill.up{background:var(--upbg);color:var(--up)} .pill.down{background:var(--downbg);color:var(--down)}
+.pill small{font-weight:500;opacity:.8;margin-right:3px}
+.date{font-size:12px;color:var(--muted)}
+.stale{color:var(--down);font-size:12px;font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:16px}
+.panel-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.ranges{display:flex;gap:4px;flex-wrap:wrap}
+.ranges button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:4px 10px;border-radius:8px;cursor:pointer}
+.ranges button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.chart-box{position:relative;height:360px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:12px}
+.stat{border-top:1px solid var(--line);padding-top:8px}
+.stat b{display:block;font-size:16px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.toggles{display:flex;flex-wrap:wrap;gap:6px}
+.toggles label{display:flex;align-items:center;gap:5px;font-size:13px;border:1px solid var(--line);padding:3px 9px;border-radius:999px;cursor:pointer}
+.toggles input{accent-color:var(--accent)}
+.dot{width:9px;height:9px;border-radius:50%}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500}
+a{color:var(--accent)}
+.note{font-size:12px;color:var(--muted);margin-top:4px}
+.err{background:var(--downbg);color:var(--down);padding:12px;border-radius:8px}
+.table-scroll{overflow-x:auto}
+@media (max-width:600px){.chart-box{height:280px}h1{font-size:22px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Monitor de Precios</h1>
+      <div class="sub">Jet Fuel · Petróleo · Oro · Dólar. Fuentes públicas, actualización automática.</div>
+    </div>
+    <div class="sub" id="generated">Cargando…</div>
+  </header>
+
+  <div class="grid" id="cards"></div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2 id="main-title">—</h2><div class="sub" id="main-sub"></div></div>
+      <div class="ranges" id="ranges-main"></div>
+    </div>
+    <div class="chart-box"><canvas id="main-chart" aria-label="Gráfico de precio"></canvas></div>
+    <div class="stats" id="main-stats"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>Comparación (base 100)</h2><div class="sub">Variación relativa desde el inicio del período elegido</div></div>
+      <div class="ranges" id="ranges-cmp"></div>
+    </div>
+    <div class="toggles" id="toggles" style="margin-bottom:10px"></div>
+    <div class="chart-box"><canvas id="cmp-chart" aria-label="Gráfico comparativo"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <h2 style="margin-bottom:8px">Fuentes</h2>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Serie</th><th>Fuente</th><th>Unidad</th><th>Último dato</th></tr></thead>
+      <tbody id="sources"></tbody>
+    </table></div>
+    <p class="note">Los datos se descargan automáticamente con GitHub Actions varias veces al día (lunes a viernes). Las variaciones se calculan contra el último dato disponible en o antes de la fecha de referencia. Información referencial, no constituye asesoría financiera.</p>
+  </section>
+</div>
+
+<script>
+const RANGES=[["1M",30],["3M",91],["6M",182],["1A",365],["3A",1095],["5A",1830]];
+const COLORS=["--c1","--c2","--c3","--c4","--c5","--c6"];
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const state={series:[],selected:null,rangeMain:"1A",rangeCmp:"1A",cmpOn:new Set()};
+let mainChart,cmpChart;
+
+const fmt=(v,d)=>v==null?"—":v.toLocaleString("es-CL",{minimumFractionDigits:d,maximumFractionDigits:d});
+const pct=v=>v==null?"—":(v>0?"+":"")+v.toLocaleString("es-CL",{minimumFractionDigits:1,maximumFractionDigits:1})+"%";
+const fdate=s=>new Date(s+"T12:00:00").toLocaleDateString("es-CL",{day:"2-digit",month:"short",year:"numeric"});
+const daysBack=(s,n)=>{const d=new Date(s+"T12:00:00");d.setDate(d.getDate()-n);return d.toISOString().slice(0,10)};
+
+function valueAt(points,date){ // último valor en o antes de la fecha
+  let lo=0,hi=points.length-1,ans=null;
+  while(lo<=hi){const m=(lo+hi)>>1;if(points[m][0]<=date){ans=points[m];lo=m+1}else hi=m-1}
+  return ans;
+}
+function change(points,days){
+  if(points.length<2)return null;
+  const last=points[points.length-1];
+  const ref=days==="d"?points[points.length-2]:days==="ytd"?valueAt(points,(+last[0].slice(0,4)-1)+"-12-31"):valueAt(points,daysBack(last[0],days));
+  if(!ref||ref[1]===0||ref===last)return null;
+  return (last[1]/ref[1]-1)*100;
+}
+const cls=v=>v==null?"":v>0?"up":v<0?"down":"";
+function slice(points,range){
+  const days=RANGES.find(r=>r[0]===range)[1];
+  const from=daysBack(points[points.length-1][0],days);
+  return points.filter(p=>p[0]>=from);
+}
+
+function renderCards(){
+  const el=document.getElementById("cards");el.innerHTML="";
+  state.series.forEach((s,i)=>{
+    const p=s.points,last=p[p.length-1];
+    const b=document.createElement("button");b.className="card";b.setAttribute("aria-pressed",s.id===state.selected);
+    const pills=[["Día","d"],["Sem","7"],["Mes","30"],["Año","365"],["YTD","ytd"]].map(([l,k])=>{
+      const v=change(p,isNaN(k)?k:+k);return `<span class="pill ${cls(v)}"><small>${l}</small>${pct(v)}</span>`}).join("");
+    b.innerHTML=`<div class="top"><span class="name"><span class="dot" style="display:inline-block;background:${css(COLORS[i])};margin-right:6px"></span>${s.name}</span><span class="unit">${s.unit}</span></div>
+      <div class="detail">${s.detail}</div>
+      <div class="val">${last?fmt(last[1],s.decimals):"—"}</div>
+      <div class="date">${last?fdate(last[0]):"sin datos"} ${s.status==="stale"?'<span class="stale">· fuente sin actualizar</span>':""}</div>
+      <div class="chg">${pills}</div>`;
+    b.onclick=()=>{state.selected=s.id;renderCards();renderMain()};
+    el.appendChild(b);
+  });
+}
+
+function rangeButtons(id,key,cb){
+  const el=document.getElementById(id);el.innerHTML="";
+  RANGES.forEach(([r])=>{const b=document.createElement("button");b.textContent=r;b.setAttribute("aria-pressed",state[key]===r);
+    b.onclick=()=>{state[key]=r;rangeButtons(id,key,cb);cb()};el.appendChild(b)});
+}
+
+function baseOpts(){
+  const grid=css("--line"),muted=css("--muted");
+  return {responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:"index",intersect:false},
+    scales:{x:{ticks:{color:muted,maxTicksLimit:8,maxRotation:0,callback(v){return fdate(this.getLabelForValue(v))}},grid:{display:false}},
+            y:{ticks:{color:muted},grid:{color:grid}}},
+    plugins:{legend:{display:false},tooltip:{callbacks:{title:i=>fdate(i[0].label)}}}};
+}
+
+function renderMain(){
+  const i=state.series.findIndex(s=>s.id===state.selected),s=state.series[i];
+  document.getElementById("main-title").textContent=s.name;
+  document.getElementById("main-sub").textContent=`${s.detail} · ${s.unit}`;
+  const pts=slice(s.points,state.rangeMain),color=css(COLORS[i]);
+  const opts=baseOpts();opts.plugins.tooltip.callbacks.label=c=>` ${fmt(c.parsed.y,s.decimals)} ${s.unit}`;
+  const data={labels:pts.map(p=>p[0]),datasets:[{data:pts.map(p=>p[1]),borderColor:color,backgroundColor:color+"22",fill:true,pointRadius:0,borderWidth:2,tension:.15}]};
+  if(mainChart)mainChart.destroy();
+  mainChart=new Chart(document.getElementById("main-chart"),{type:"line",data,options:opts});
+  const vals=pts.map(p=>p[1]),first=pts[0],last=pts[pts.length-1];
+  const max=Math.max(...vals),min=Math.min(...vals),avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+  const chg=(last[1]/first[1]-1)*100;
+  document.getElementById("main-stats").innerHTML=[
+    ["Variación "+state.rangeMain,`<span style="color:var(--${chg>=0?"up":"down"})">${pct(chg)}</span>`],
+    ["Último",fmt(last[1],s.decimals)],["Máximo",fmt(max,s.decimals)],["Mínimo",fmt(min,s.decimals)],["Promedio",fmt(avg,s.decimals)]
+  ].map(([k,v])=>`<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("");
+}
+
+function renderToggles(){
+  const el=document.getElementById("toggles");el.innerHTML="";
+  state.series.forEach((s,i)=>{const l=document.createElement("label");
+    l.innerHTML=`<input type="checkbox" ${state.cmpOn.has(s.id)?"checked":""}><span class="dot" style="background:${css(COLORS[i])}"></span>${s.name}`;
+    l.querySelector("input").onchange=e=>{e.target.checked?state.cmpOn.add(s.id):state.cmpOn.delete(s.id);renderCmp()};el.appendChild(l)});
+}
+
+function renderCmp(){
+  const active=state.series.map((s,i)=>({s,i})).filter(x=>state.cmpOn.has(x.s.id)&&x.s.points.length);
+  const lastDate=active.reduce((m,x)=>{const d=x.s.points[x.s.points.length-1][0];return d>m?d:m},"");
+  const from=daysBack(lastDate||new Date().toISOString().slice(0,10),RANGES.find(r=>r[0]===state.rangeCmp)[1]);
+  const dates=[...new Set(active.flatMap(x=>x.s.points.filter(p=>p[0]>=from).map(p=>p[0])))].sort();
+  const datasets=active.map(({s,i})=>{
+    const base=valueAt(s.points,from)||s.points.find(p=>p[0]>=from);
+    return {label:s.name,borderColor:css(COLORS[i]),pointRadius:0,borderWidth:2,tension:.15,spanGaps:true,
+      data:dates.map(d=>{const v=valueAt(s.points,d);return v&&base?+(v[1]/base[1]*100).toFixed(2):null})};
+  });
+  const opts=baseOpts();opts.plugins.legend={display:false};
+  opts.plugins.tooltip.callbacks.label=c=>` ${c.dataset.label}: ${fmt(c.parsed.y,1)} (${pct(c.parsed.y-100)})`;
+  if(cmpChart)cmpChart.destroy();
+  cmpChart=new Chart(document.getElementById("cmp-chart"),{type:"line",data:{labels:dates,datasets},options:opts});
+}
+
+function renderSources(){
+  document.getElementById("sources").innerHTML=state.series.map(s=>{
+    const last=s.points[s.points.length-1];
+    return `<tr><td><b>${s.name}</b><div class="note">${s.detail}</div></td>
+      <td><a href="${s.source_url}" target="_blank" rel="noopener">${s.source}</a>${s.note?`<div class="note">${s.note}</div>`:""}</td>
+      <td>${s.unit}</td><td>${last?fdate(last[0]):"—"}</td></tr>`}).join("");
+}
+
+function renderAll(){renderCards();renderMain();renderCmp();renderToggles();renderSources()}
+
+fetch("data/data.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()}).then(d=>{
+  state.series=d.series.filter(s=>s.points&&s.points.length);
+  state.selected=state.series[0].id;
+  state.series.forEach(s=>{if(s.id!=="dxy")state.cmpOn.add(s.id)});
+  const g=new Date(d.generated);
+  document.getElementById("generated").textContent="Actualizado: "+g.toLocaleString("es-CL",{dateStyle:"medium",timeStyle:"short"});
+  rangeButtons("ranges-main","rangeMain",renderMain);rangeButtons("ranges-cmp","rangeCmp",renderCmp);
+  renderAll();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change",renderAll);
+}).catch(e=>{document.getElementById("cards").innerHTML=`<div class="err">No se pudieron cargar los datos (${e.message}).</div>`});
+</script>
+</body>
+</html>
