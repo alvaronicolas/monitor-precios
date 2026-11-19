@@ -114,14 +114,84 @@ def fetch_eia(code):
     return pts
 
 
+# Historial oficial guardado en el repo: así cada ejecución sólo pide los últimos días
+# (consulta liviana) en vez de 5 años completos, que es lo que hacía fallar a mindicador.cl.
+CACHE_DIR = os.path.join(ROOT, "data")
+MAX_STALE_DAYS = 7  # si el dato oficial más reciente es más antiguo, se usa el respaldo
+
+
+def cache_path(name):
+    return os.path.join(CACHE_DIR, f"oficial_{name}.json")
+
+
+def load_cache(name):
+    try:
+        with open(cache_path(name), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(name, pts):
+    cutoff = start_date().isoformat()
+    pts = {d: v for d, v in sorted(pts.items()) if d >= cutoff}
+    with open(cache_path(name), "w", encoding="utf-8") as f:
+        json.dump(pts, f, separators=(",", ":"))
+    return pts
+
+
+def check_fresh(pts):
+    if not pts:
+        raise RuntimeError("sin datos oficiales")
+    last = dt.date.fromisoformat(max(pts))
+    if (dt.date.today() - last).days > MAX_STALE_DAYS:
+        raise RuntimeError(f"dato oficial desactualizado (último {last})")
+    return pts
+
+
 def fetch_mindicador(code):
-    pts = {}
-    for year in range(start_date().year, dt.date.today().year + 1):
-        data = json.loads(get(f"https://mindicador.cl/api/{code}/{year}"))
+    pts = load_cache(code)
+    # 1) Últimos ~30 días (rápido)
+    recent_ok = False
+    try:
+        data = json.loads(get(f"https://mindicador.cl/api/{code}", timeout=40))
         for item in data.get("serie", []):
             # fechas vienen como 2026-11-18T03:00:00.000Z (medianoche hora Chile)
             pts[item["fecha"][:10]] = float(item["valor"])
-    return pts
+        recent_ok = True
+    except Exception as e:  # noqa: BLE001
+        print(f"WARN mindicador últimos días falló ({e})", file=sys.stderr)
+    # 2) Si falta historia, completar a lo más un año por ejecución.
+    #    Un año está completo si tiene datos cerca de su inicio (o del inicio de la ventana).
+    def missing_years():
+        first = {}
+        for d in pts:
+            first[d[:4]] = min(first.get(d[:4], d), d)
+        out = []
+        for year in range(start_date().year, dt.date.today().year + 1):
+            need = max(dt.date(year, 1, 1), start_date()) + dt.timedelta(days=12)
+            if need < dt.date.today() and first.get(str(year), "9999") > need.isoformat():
+                out.append(year)
+        return out
+
+    for year in missing_years()[:1]:  # a lo más un año por ejecución
+        try:
+            serie = json.loads(get(f"https://mindicador.cl/api/{code}/{year}", timeout=120)).get("serie") or []
+            if not serie:
+                raise RuntimeError("respuesta sin datos")
+            for item in serie:
+                pts[item["fecha"][:10]] = float(item["valor"])
+            print(f"INFO mindicador: historial {year} agregado ({len(serie)} datos)", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001
+            print(f"WARN mindicador historial {year} falló ({e})", file=sys.stderr)
+    pts = save_cache(code, pts)
+    if not recent_ok:
+        print("WARN mindicador: usando historial guardado", file=sys.stderr)
+    falta = missing_years()
+    if falta:
+        # se sigue completando en las próximas ejecuciones; mientras, se usa el respaldo
+        raise RuntimeError(f"historial oficial incompleto (faltan {falta})")
+    return check_fresh(pts)
 
 
 def fetch_bcch(code):
@@ -149,6 +219,10 @@ def fetch_bcch(code):
             continue
         d, m, y = o["indexDateString"].split("-")
         pts[f"{y}-{m}-{d}"] = v
+    if code == "F073.TCO.PRE.Z.D" and pts:  # mismo dato que mindicador "dolar"
+        merged = load_cache("dolar")
+        merged.update(pts)
+        save_cache("dolar", merged)
     return pts
 
 
