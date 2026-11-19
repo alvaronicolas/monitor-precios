@@ -15,8 +15,15 @@ Sitio estático (GitHub Pages) que monitorea Jet Fuel, petróleo Brent y WTI, or
 | Jet Fuel | U.S. EIA, spot U.S. Gulf Coast (USD/galón). Publica con ~1 semana de rezago |
 | Brent / WTI | Futuros ICE / NYMEX, mes próximo (vía Yahoo Finance) |
 | Oro | Futuro COMEX, mes próximo (vía Yahoo Finance) |
-| Dólar observado | Banco Central de Chile vía mindicador.cl (respaldo: Yahoo `CLP=X`) |
+| Dólar observado | API oficial del Banco Central de Chile, serie `F073.TCO.PRE.Z.D` (respaldos: mindicador.cl, luego Yahoo `CLP=X`) |
 | DXY | ICE Futures U.S. (vía Yahoo Finance) |
+
+## Credenciales del Banco Central
+
+1. Regístrate gratis en https://si3.bcentral.cl/estadisticas/Principal1/Web_Services/index.htm
+2. En el repositorio: **Settings → Secrets and variables → Actions → New repository secret**, crea `BCCH_USER` (tu correo de registro) y `BCCH_PASS` (tu clave).
+
+Sin estas credenciales el sitio sigue funcionando con los respaldos.
 
 ## Uso local
 

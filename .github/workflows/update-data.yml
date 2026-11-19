@@ -23,6 +23,10 @@ jobs:
           python-version: "3.12"
       - run: pip install xlrd==2.0.1
       - run: python scripts/fetch_data.py
+        env:
+          # Credenciales de la API del Banco Central de Chile (Settings → Secrets and variables → Actions)
+          BCCH_USER: ${{ secrets.BCCH_USER }}
+          BCCH_PASS: ${{ secrets.BCCH_PASS }}
       - name: Guardar cambios
         run: |
           git config user.name "github-actions[bot]"

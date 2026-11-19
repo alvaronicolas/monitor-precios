@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,10 +49,14 @@ SERIES = [
     },
     {
         "id": "usdclp", "name": "Dólar observado", "detail": "USD/CLP, Banco Central de Chile",
-        "unit": "CLP por USD", "decimals": 2, "kind": "mindicador", "code": "dolar",
-        "fallback": ("yahoo", "CLP=X"),
-        "source": "Banco Central de Chile (vía mindicador.cl)",
-        "source_url": "https://mindicador.cl/",
+        "unit": "CLP por USD", "decimals": 2, "kind": "bcch", "code": "F073.TCO.PRE.Z.D",
+        "source": "Banco Central de Chile (API Base de Datos Estadísticos)",
+        "source_url": "https://si3.bcentral.cl/Siete/",
+        # Si la API del Banco Central falla o no hay credenciales, se prueban estos respaldos en orden.
+        "fallbacks": [
+            ("mindicador", "dolar", "Banco Central de Chile (vía mindicador.cl)", "https://mindicador.cl/"),
+            ("yahoo", "CLP=X", "Mercado USD/CLP (vía Yahoo Finance) — respaldo", "https://finance.yahoo.com/quote/CLP%3DX/"),
+        ],
     },
     {
         "id": "dxy", "name": "Índice Dólar (DXY)", "detail": "Dólar vs. canasta de 6 monedas",
@@ -119,7 +124,35 @@ def fetch_mindicador(code):
     return pts
 
 
-FETCHERS = {"yahoo": fetch_yahoo, "eia": fetch_eia, "mindicador": fetch_mindicador}
+def fetch_bcch(code):
+    """API oficial del Banco Central de Chile. Requiere BCCH_USER y BCCH_PASS (secrets de GitHub)."""
+    user, pwd = os.environ.get("BCCH_USER"), os.environ.get("BCCH_PASS")
+    if not user or not pwd:
+        raise RuntimeError("faltan credenciales BCCH_USER / BCCH_PASS")
+    q = urllib.parse.urlencode({
+        "user": user, "pass": pwd, "function": "GetSeries", "timeseries": code,
+        "firstdate": start_date().isoformat(), "lastdate": dt.date.today().isoformat(),
+    })
+    try:
+        data = json.loads(get("https://si3.bcentral.cl/SieteRestWS/SieteRestWS.ashx?" + q))
+    except Exception as e:  # noqa: BLE001  (no mostrar la URL: contiene la clave)
+        raise RuntimeError(f"error de conexión con el Banco Central ({type(e).__name__})") from None
+    if data.get("Codigo") != 0:
+        raise RuntimeError(f"Banco Central respondió: {data.get('Descripcion')}")
+    pts = {}
+    for o in data["Series"]["Obs"] or []:
+        try:
+            v = float(o["value"])
+        except (TypeError, ValueError):
+            continue
+        if v != v:  # NaN (días sin dato)
+            continue
+        d, m, y = o["indexDateString"].split("-")
+        pts[f"{y}-{m}-{d}"] = v
+    return pts
+
+
+FETCHERS = {"yahoo": fetch_yahoo, "eia": fetch_eia, "mindicador": fetch_mindicador, "bcch": fetch_bcch}
 
 
 def main():
@@ -131,17 +164,18 @@ def main():
     cutoff = start_date().isoformat()
     out_series, errors = [], []
     for spec in SERIES:
-        meta = {k: v for k, v in spec.items() if k not in ("kind", "code", "fallback")}
+        meta = {k: v for k, v in spec.items() if k not in ("kind", "code", "fallbacks")}
         try:
-            try:
-                pts = FETCHERS[spec["kind"]](spec["code"])
-            except Exception as e:  # noqa: BLE001
-                if "fallback" not in spec:
-                    raise
-                kind, code = spec["fallback"]
-                print(f"WARN {spec['id']:8} fuente principal falló ({e!r}); usando respaldo {code}", file=sys.stderr)
-                pts = FETCHERS[kind](code)
-                meta["source"] += " — respaldo: Yahoo Finance " + code
+            attempts = [(spec["kind"], spec["code"], spec["source"], spec["source_url"])] + spec.get("fallbacks", [])
+            for n, (kind, code, label, url) in enumerate(attempts):
+                try:
+                    pts = FETCHERS[kind](code)
+                    meta["source"], meta["source_url"] = label, url
+                    break
+                except Exception as e:  # noqa: BLE001
+                    if n == len(attempts) - 1:
+                        raise
+                    print(f"WARN {spec['id']:8} {kind} falló ({e}); probando respaldo", file=sys.stderr)
             points = [[d, round(v, 4)] for d, v in sorted(pts.items()) if d >= cutoff]
             if len(points) < 10:
                 raise ValueError(f"muy pocos datos ({len(points)})")
