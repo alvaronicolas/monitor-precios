@@ -126,7 +126,7 @@ def fetch_mindicador(code):
 
 def fetch_bcch(code):
     """API oficial del Banco Central de Chile. Requiere BCCH_USER y BCCH_PASS (secrets de GitHub)."""
-    user, pwd = os.environ.get("BCCH_USER"), os.environ.get("BCCH_PASS")
+    user, pwd = (os.environ.get("BCCH_USER") or "").strip(), (os.environ.get("BCCH_PASS") or "").strip()
     if not user or not pwd:
         raise RuntimeError("faltan credenciales BCCH_USER / BCCH_PASS")
     q = urllib.parse.urlencode({
