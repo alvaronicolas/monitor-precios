@@ -5,7 +5,7 @@ Sitio estático (GitHub Pages) que monitorea Jet Fuel, petróleo Brent y WTI, or
 ## Cómo funciona
 
 - `scripts/fetch_data.py` descarga las series y las guarda en `data/data.json`.
-- `.github/workflows/update-data.yml` ejecuta el script de lunes a viernes, 4 veces al día, y hace commit si hay datos nuevos.
+- `.github/workflows/update-data.yml` ejecuta el script todos los días, 4 veces al día, y hace commit si hay datos nuevos.
 - `index.html` lee `data/data.json` y muestra tarjetas con variaciones (día, semana, mes, año y YTD), un gráfico por serie y una comparación base 100.
 
 ## Fuentes

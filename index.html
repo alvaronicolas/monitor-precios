@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Monitor de Precios</title>
 <meta name="description" content="Monitoreo de Jet Fuel, petróleo, oro y dólar con datos de fuentes públicas actualizados automáticamente.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="favicon.svg">
+<meta name="theme-color" content="#1e3a8a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -49,6 +52,10 @@ h2{font-size:17px;margin:0}
 .ranges button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:4px 10px;border-radius:8px;cursor:pointer}
 .ranges button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 .chart-box{position:relative;height:360px}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.trend-toggle{display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;color:var(--muted)}
+.trend-toggle input{accent-color:var(--accent)}
+.trend-note{font-size:12px;color:var(--muted);margin-top:6px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:12px}
 .stat{border-top:1px solid var(--line);padding-top:8px}
 .stat b{display:block;font-size:16px;font-variant-numeric:tabular-nums}
@@ -82,19 +89,21 @@ a{color:var(--accent)}
   <section class="panel">
     <div class="panel-head">
       <div><h2 id="main-title">—</h2><div class="sub" id="main-sub"></div></div>
-      <div class="ranges" id="ranges-main"></div>
+      <div class="controls"><label class="trend-toggle"><input type="checkbox" id="trend-main" checked> Tendencia</label><div class="ranges" id="ranges-main"></div></div>
     </div>
     <div class="chart-box"><canvas id="main-chart" aria-label="Gráfico de precio"></canvas></div>
+    <div class="trend-note" id="trend-note-main"></div>
     <div class="stats" id="main-stats"></div>
   </section>
 
   <section class="panel">
     <div class="panel-head">
       <div><h2>Comparación (base 100)</h2><div class="sub">Variación relativa desde el inicio del período elegido</div></div>
-      <div class="ranges" id="ranges-cmp"></div>
+      <div class="controls"><label class="trend-toggle"><input type="checkbox" id="trend-cmp" checked> Tendencia</label><div class="ranges" id="ranges-cmp"></div></div>
     </div>
     <div class="toggles" id="toggles" style="margin-bottom:10px"></div>
     <div class="chart-box"><canvas id="cmp-chart" aria-label="Gráfico comparativo"></canvas></div>
+    <div class="trend-note" id="trend-note-cmp"></div>
   </section>
 
   <section class="panel">
@@ -103,7 +112,7 @@ a{color:var(--accent)}
       <thead><tr><th>Serie</th><th>Fuente</th><th>Unidad</th><th>Último dato</th></tr></thead>
       <tbody id="sources"></tbody>
     </table></div>
-    <p class="note">Los datos se descargan automáticamente con GitHub Actions varias veces al día (lunes a viernes). Las variaciones se calculan contra el último dato disponible en o antes de la fecha de referencia. Información referencial, no constituye asesoría financiera.</p>
+    <p class="note">Los datos se descargan automáticamente con GitHub Actions 4 veces al día, todos los días. Las variaciones se calculan contra el último dato disponible en o antes de la fecha de referencia. Información referencial, no constituye asesoría financiera.</p>
   </section>
 </div>
 
@@ -111,7 +120,17 @@ a{color:var(--accent)}
 const RANGES=[["1M",30],["3M",91],["6M",182],["1A",365],["3A",1095],["5A",1830]];
 const COLORS=["--c1","--c2","--c3","--c4","--c5","--c6"];
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const state={series:[],selected:null,rangeMain:"1A",rangeCmp:"1A",cmpOn:new Set()};
+const state={series:[],selected:null,rangeMain:"1A",rangeCmp:"1A",cmpOn:new Set(),trendMain:true,trendCmp:true};
+// Ventana de la media móvil (en días hábiles) según el rango visible
+const TREND_WIN={"1M":5,"3M":10,"6M":20,"1A":30,"3A":60,"5A":90};
+const smoothCache=new Map();
+function smoothed(s,w){ // media móvil simple calculada sobre toda la serie (así no se corta al inicio del rango)
+  const key=s.id+"|"+w;if(smoothCache.has(key))return smoothCache.get(key);
+  const out=[];let sum=0;
+  s.points.forEach((p,i)=>{sum+=p[1];if(i>=w)sum-=s.points[i-w][1];if(i>=w-1)out.push([p[0],sum/w])});
+  smoothCache.set(key,out);return out;
+}
+const trendLabel=w=>`Media móvil de ${w} días hábiles`;
 let mainChart,cmpChart;
 
 const fmt=(v,d)=>v==null?"—":v.toLocaleString("es-CL",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -174,8 +193,15 @@ function renderMain(){
   document.getElementById("main-title").textContent=s.name;
   document.getElementById("main-sub").textContent=`${s.detail} · ${s.unit}`;
   const pts=slice(s.points,state.rangeMain),color=css(COLORS[i]);
-  const opts=baseOpts();opts.plugins.tooltip.callbacks.label=c=>` ${fmt(c.parsed.y,s.decimals)} ${s.unit}`;
-  const data={labels:pts.map(p=>p[0]),datasets:[{data:pts.map(p=>p[1]),borderColor:color,backgroundColor:color+"22",fill:true,pointRadius:0,borderWidth:2,tension:.15}]};
+  const opts=baseOpts();opts.plugins.tooltip.callbacks.label=c=>` ${c.datasetIndex?"Tendencia":"Precio"}: ${fmt(c.parsed.y,s.decimals)} ${s.unit}`;
+  const datasets=[{data:pts.map(p=>p[1]),borderColor:color,backgroundColor:color+"22",fill:true,pointRadius:0,borderWidth:state.trendMain?1.5:2,tension:.15}];
+  const w=TREND_WIN[state.rangeMain];
+  if(state.trendMain){
+    const sm=smoothed(s,w);
+    datasets.push({data:pts.map(p=>{const v=valueAt(sm,p[0]);return v?v[1]:null}),borderColor:css("--text"),borderDash:[6,4],borderWidth:2,pointRadius:0,fill:false,tension:.3,spanGaps:true});
+  }
+  document.getElementById("trend-note-main").textContent=state.trendMain?"Línea punteada: "+trendLabel(w).toLowerCase()+".":"";
+  const data={labels:pts.map(p=>p[0]),datasets};
   if(mainChart)mainChart.destroy();
   mainChart=new Chart(document.getElementById("main-chart"),{type:"line",data,options:opts});
   const vals=pts.map(p=>p[1]),first=pts[0],last=pts[pts.length-1];
@@ -199,11 +225,15 @@ function renderCmp(){
   const lastDate=active.reduce((m,x)=>{const d=x.s.points[x.s.points.length-1][0];return d>m?d:m},"");
   const from=daysBack(lastDate||new Date().toISOString().slice(0,10),RANGES.find(r=>r[0]===state.rangeCmp)[1]);
   const dates=[...new Set(active.flatMap(x=>x.s.points.filter(p=>p[0]>=from).map(p=>p[0])))].sort();
-  const datasets=active.map(({s,i})=>{
-    const base=valueAt(s.points,from)||s.points.find(p=>p[0]>=from);
-    return {label:s.name,borderColor:css(COLORS[i]),pointRadius:0,borderWidth:2,tension:.15,spanGaps:true,
-      data:dates.map(d=>{const v=valueAt(s.points,d);return v&&base?+(v[1]/base[1]*100).toFixed(2):null})};
+  const w=TREND_WIN[state.rangeCmp],datasets=[];
+  active.forEach(({s,i})=>{
+    const base=valueAt(s.points,from)||s.points.find(p=>p[0]>=from),color=css(COLORS[i]);
+    const idx=src=>dates.map(d=>{const v=valueAt(src,d);return v&&base?+(v[1]/base[1]*100).toFixed(2):null});
+    // con tendencia activa, la serie original queda tenue y la tendencia se dibuja encima
+    datasets.push({label:s.name,borderColor:state.trendCmp?color+"55":color,pointRadius:0,borderWidth:state.trendCmp?1:2,tension:.15,spanGaps:true,data:idx(s.points)});
+    if(state.trendCmp)datasets.push({label:s.name+" (tendencia)",borderColor:color,pointRadius:0,borderWidth:2.5,tension:.3,spanGaps:true,data:idx(smoothed(s,w))});
   });
+  document.getElementById("trend-note-cmp").textContent=state.trendCmp?"Líneas gruesas: "+trendLabel(w).toLowerCase()+"; líneas tenues: valor diario.":"";
   const opts=baseOpts();opts.plugins.legend={display:false};
   opts.plugins.tooltip.callbacks.label=c=>` ${c.dataset.label}: ${fmt(c.parsed.y,1)} (${pct(c.parsed.y-100)})`;
   if(cmpChart)cmpChart.destroy();
@@ -227,6 +257,8 @@ fetch("data/data.json",{cache:"no-store"}).then(r=>{if(!r.ok)throw new Error(r.s
   const g=new Date(d.generated);
   document.getElementById("generated").textContent="Actualizado: "+g.toLocaleString("es-CL",{dateStyle:"medium",timeStyle:"short"});
   rangeButtons("ranges-main","rangeMain",renderMain);rangeButtons("ranges-cmp","rangeCmp",renderCmp);
+  document.getElementById("trend-main").onchange=e=>{state.trendMain=e.target.checked;renderMain()};
+  document.getElementById("trend-cmp").onchange=e=>{state.trendCmp=e.target.checked;renderCmp()};
   renderAll();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change",renderAll);
 }).catch(e=>{document.getElementById("cards").innerHTML=`<div class="err">No se pudieron cargar los datos (${e.message}).</div>`});
